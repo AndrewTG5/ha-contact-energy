@@ -124,16 +124,11 @@ class ContactEnergyUsageSensor(SensorEntity):
         """Begin usage update."""
         _LOGGER.debug("Beginning usage update")
 
-        # Check to see if our API Token is valid
-        if self._api._api_token:
-            _LOGGER.debug("We appear to be logged in (lets not verify it for now)")
-        else:
-            _LOGGER.info("Havent logged in yet, lets login now...")
-            if self._api.login() is False:
-                _LOGGER.error(
-                    "Failed to get past login (usage will not be updated) - check the username and password are valid"
-                )
-                return False
+        if self._api.login() is False:
+            _LOGGER.error(
+                "Failed to get past login (usage will not be updated) - check the username and password are valid"
+            )
+            return False
 
         # Get todays date
         today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
