@@ -141,9 +141,13 @@ class ContactEnergyUsageSensor(SensorEntity):
 
         kWhStatistics = []
         kWhRunningSum = 0
+        dollarStatistics = []
+        dollarRunningSum = 0
 
         freeKWhStatistics = []
         freeKWhRunningSum = 0
+
+        currency = 'NZD'
 
         for i in range(self._usage_days):
             previous_day = today - timedelta(days=self._usage_days - i)
@@ -152,15 +156,17 @@ class ContactEnergyUsageSensor(SensorEntity):
             )
             if response and response[0]:
                 for point in response:
+                    if point['currency'] and currency != point['currency']:
+                        currency = point['currency']
+
                     if point["value"]:
                         # If the off peak value is '0.00' then the energy is free.
                         # HASSIO statistics requires us to add values as a sum of all previous values.
                         if point["offpeakValue"] == "0.00":
                             kWhRunningSum = kWhRunningSum + float(point["value"])
+                            dollarRunningSum = dollarRunningSum + float(point["dollarValue"])
                         else:
-                            freeKWhRunningSum = freeKWhRunningSum + float(
-                                point["value"]
-                            )
+                            freeKWhRunningSum = freeKWhRunningSum + float(point["value"])
 
                         freeKWhStatistics.append(
                             StatisticData(
@@ -178,6 +184,14 @@ class ContactEnergyUsageSensor(SensorEntity):
                                 sum=kWhRunningSum,
                             )
                         )
+                        dollarStatistics.append(
+                            StatisticData(
+                                start=datetime.strptime(
+                                    point["date"], "%Y-%m-%dT%H:%M:%S.%f%z"
+                                ),
+                                sum=dollarRunningSum,
+                            )
+                        )
 
         kWhMetadata = StatisticMetaData(
             has_mean=False,
@@ -189,6 +203,16 @@ class ContactEnergyUsageSensor(SensorEntity):
         )
         async_add_external_statistics(self.hass, kWhMetadata, kWhStatistics)
 
+        dollarMetadata = StatisticMetaData(
+            has_mean=False,
+            has_sum=True,
+            name="ContactEnergyDollars",
+            source=DOMAIN,
+            statistic_id=f"{DOMAIN}:energy_consumption_in_dollars",
+            unit_of_measurement=currency,
+        )
+        async_add_external_statistics(self.hass, dollarMetadata, dollarStatistics)
+
         freeKWHMetadata = StatisticMetaData(
             has_mean=False,
             has_sum=True,
@@ -198,3 +222,13 @@ class ContactEnergyUsageSensor(SensorEntity):
             unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
         )
         async_add_external_statistics(self.hass, freeKWHMetadata, freeKWhStatistics)
+
+        freeEnergyDollarMetadata = StatisticMetaData(
+            has_mean=False,
+            has_sum=True,
+            name="FreeContactEnergyDollars",
+            source=DOMAIN,
+            statistic_id=f"{DOMAIN}:free_energy_consumption_in_dollars",
+            unit_of_measurement=currency,
+        )
+        async_add_external_statistics(self.hass, freeEnergyDollarMetadata, [])
