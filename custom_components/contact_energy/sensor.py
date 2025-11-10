@@ -41,7 +41,7 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
     {
         vol.Required(CONF_EMAIL): cv.string,
         vol.Required(CONF_PASSWORD): cv.string,
-        vol.Optional(CONF_USAGE_DAYS, default=10): cv.positive_int,
+        vol.Optional(CONF_USAGE_DAYS, default=5): cv.positive_int,
     }
 )
 
@@ -134,13 +134,8 @@ class ContactEnergyUsageSensor(SensorEntity):
         today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
         _LOGGER.debug("Fetching usage data")
 
-        kWhStatistics = []
-        kWhRunningSum = 0
-        dollarStatistics = []
-        dollarRunningSum = 0
-
-        freeKWhStatistics = []
-        freeKWhRunningSum = 0
+        # Collect all data points with their timestamps and values
+        all_data_points = []
 
         currency = 'NZD'
 
@@ -155,42 +150,56 @@ class ContactEnergyUsageSensor(SensorEntity):
                         currency = point['currency']
 
                     if point["value"]:
-                        # If the off peak value is '0.00' then the energy is paid.
-                        # HASSIO statistics requires us to add values as a sum of all previous values.
-                        if point["offpeakValue"] == "0.00":
-                            kWhRunningSum = kWhRunningSum + float(point["value"])
-                            dollarRunningSum = dollarRunningSum + float(point["dollarValue"])
-                        else:
-                            freeKWhRunningSum = freeKWhRunningSum + float(point["value"])
+                        all_data_points.append({
+                            'timestamp': datetime.strptime(point["date"], "%Y-%m-%dT%H:%M:%S.%f%z"),
+                            'value': float(point["value"]),
+                            'dollarValue': float(point["dollarValue"]),
+                            'is_paid': point["offpeakValue"] == "0.00"
+                        })
 
-                        freeKWhStatistics.append(
-                            StatisticData(
-                                start=datetime.strptime(
-                                    point["date"], "%Y-%m-%dT%H:%M:%S.%f%z"
-                                ),
-                                sum=freeKWhRunningSum,
-                            )
-                        )
-                        kWhStatistics.append(
-                            StatisticData(
-                                start=datetime.strptime(
-                                    point["date"], "%Y-%m-%dT%H:%M:%S.%f%z"
-                                ),
-                                sum=kWhRunningSum,
-                            )
-                        )
-                        dollarStatistics.append(
-                            StatisticData(
-                                start=datetime.strptime(
-                                    point["date"], "%Y-%m-%dT%H:%M:%S.%f%z"
-                                ),
-                                sum=dollarRunningSum,
-                            )
-                        )
+        # Sort by timestamp to ensure correct order
+        all_data_points.sort(key=lambda x: x['timestamp'])
+
+        # Now build statistics with proper cumulative sums
+        kWhStatistics = []
+        kWhRunningSum = 0
+        dollarStatistics = []
+        dollarRunningSum = 0
+        freeKWhStatistics = []
+        freeKWhRunningSum = 0
+
+        for point in all_data_points:
+            # If the off peak value is '0.00' then the energy is paid.
+            # HASSIO statistics requires us to add values as a sum of all previous values.
+            if point['is_paid']:
+                kWhRunningSum = kWhRunningSum + point['value']
+                dollarRunningSum = dollarRunningSum + point['dollarValue']
+            else:
+                freeKWhRunningSum = freeKWhRunningSum + point['value']
+
+            freeKWhStatistics.append(
+                StatisticData(
+                    start=point['timestamp'],
+                    sum=freeKWhRunningSum,
+                )
+            )
+            kWhStatistics.append(
+                StatisticData(
+                    start=point['timestamp'],
+                    sum=kWhRunningSum,
+                )
+            )
+            dollarStatistics.append(
+                StatisticData(
+                    start=point['timestamp'],
+                    sum=dollarRunningSum,
+                )
+            )
 
         kWhMetadata = StatisticMetaData(
-            has_mean=False,
+            mean_type=0,
             has_sum=True,
+            unit_class=None,
             name="ContactEnergy",
             source=DOMAIN,
             statistic_id=f"{DOMAIN}:energy_consumption",
@@ -199,8 +208,9 @@ class ContactEnergyUsageSensor(SensorEntity):
         async_add_external_statistics(self.hass, kWhMetadata, kWhStatistics)
 
         dollarMetadata = StatisticMetaData(
-            has_mean=False,
+            mean_type=0,
             has_sum=True,
+            unit_class=None,
             name="ContactEnergyDollars",
             source=DOMAIN,
             statistic_id=f"{DOMAIN}:energy_consumption_in_dollars",
@@ -209,8 +219,9 @@ class ContactEnergyUsageSensor(SensorEntity):
         async_add_external_statistics(self.hass, dollarMetadata, dollarStatistics)
 
         freeKWHMetadata = StatisticMetaData(
-            has_mean=False,
+            mean_type=0,
             has_sum=True,
+            unit_class=None,
             name="FreeContactEnergy",
             source=DOMAIN,
             statistic_id=f"{DOMAIN}:free_energy_consumption",
@@ -219,8 +230,9 @@ class ContactEnergyUsageSensor(SensorEntity):
         async_add_external_statistics(self.hass, freeKWHMetadata, freeKWhStatistics)
 
         freeEnergyDollarMetadata = StatisticMetaData(
-            has_mean=False,
+            mean_type=0,
             has_sum=True,
+            unit_class=None,
             name="FreeContactEnergyDollars",
             source=DOMAIN,
             statistic_id=f"{DOMAIN}:free_energy_consumption_in_dollars",
