@@ -24,7 +24,7 @@ from .const import (
 )
 
 NAME = DOMAIN
-ISSUEURL = "https://github.com/codyc1515/hacs_contact_energy/issues"
+ISSUEURL = "https://github.com/AndrewTG5/hacs_contact_energy/issues"
 
 STARTUP = f"""
 -------------------------------------------------------------------
@@ -155,7 +155,7 @@ class ContactEnergyUsageSensor(SensorEntity):
                         currency = point['currency']
 
                     if point["value"]:
-                        # If the off peak value is '0.00' then the energy is free.
+                        # If the off peak value is '0.00' then the energy is paid.
                         # HASSIO statistics requires us to add values as a sum of all previous values.
                         if point["offpeakValue"] == "0.00":
                             kWhRunningSum = kWhRunningSum + float(point["value"])
