@@ -41,7 +41,7 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
     {
         vol.Required(CONF_EMAIL): cv.string,
         vol.Required(CONF_PASSWORD): cv.string,
-        vol.Optional(CONF_USAGE_DAYS, default=5): cv.positive_int,
+        vol.Optional(CONF_USAGE_DAYS, default=365): cv.positive_int,
     }
 )
 
@@ -139,6 +139,8 @@ class ContactEnergyUsageSensor(SensorEntity):
 
         currency = 'NZD'
 
+        last_dollar_value = 0.0  # Cache for previous dollarValue
+
         for i in range(self._usage_days):
             previous_day = today - timedelta(days=self._usage_days - i)
             response = self._api.get_usage(
@@ -146,14 +148,19 @@ class ContactEnergyUsageSensor(SensorEntity):
             )
             if response and response[0]:
                 for point in response:
+                    _LOGGER.error(point)
                     if point['currency'] and currency != point['currency']:
                         currency = point['currency']
 
                     if point["value"]:
+                        # Use cached value if dollarValue is None
+                        dollar_value = float(point["dollarValue"]) if point["dollarValue"] is not None else last_dollar_value
+                        last_dollar_value = dollar_value  # Update cache
+                        
                         all_data_points.append({
                             'timestamp': datetime.strptime(point["date"], "%Y-%m-%dT%H:%M:%S.%f%z"),
                             'value': float(point["value"]),
-                            'dollarValue': float(point["dollarValue"]),
+                            'dollarValue': dollar_value,
                             'is_paid': point["offpeakValue"] == "0.00"
                         })
 
