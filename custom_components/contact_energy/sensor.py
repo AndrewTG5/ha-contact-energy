@@ -13,6 +13,7 @@ from homeassistant.components.sensor import SensorEntity
 from homeassistant.components.recorder.models import StatisticData, StatisticMetaData
 from homeassistant.components.recorder.statistics import (
     async_add_external_statistics,
+    statistics_during_period,
 )
 
 from .api import ContactEnergyApi
@@ -41,7 +42,7 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
     {
         vol.Required(CONF_EMAIL): cv.string,
         vol.Required(CONF_PASSWORD): cv.string,
-        vol.Optional(CONF_USAGE_DAYS, default=365): cv.positive_int,
+        vol.Optional(CONF_USAGE_DAYS, default=5): cv.positive_int,
     }
 )
 
@@ -148,7 +149,6 @@ class ContactEnergyUsageSensor(SensorEntity):
             )
             if response and response[0]:
                 for point in response:
-                    _LOGGER.error(point)
                     if point['currency'] and currency != point['currency']:
                         currency = point['currency']
 
@@ -169,11 +169,45 @@ class ContactEnergyUsageSensor(SensorEntity):
 
         # Now build statistics with proper cumulative sums
         kWhStatistics = []
-        kWhRunningSum = 0
+        kWhRunningSum = 0.0
         dollarStatistics = []
-        dollarRunningSum = 0
+        dollarRunningSum = 0.0
         freeKWhStatistics = []
-        freeKWhRunningSum = 0
+        freeKWhRunningSum = 0.0
+
+        # Get the last known sums from existing statistics to continue from where we left off
+        # This prevents negative values when statistics from older days have higher cumulative sums
+        if all_data_points:
+            first_timestamp = all_data_points[0]['timestamp']
+            # Query statistics ending just before our data range
+            existing_stats = statistics_during_period(
+                self.hass,
+                first_timestamp - timedelta(hours=2),
+                first_timestamp - timedelta(seconds=1),
+                {f"{DOMAIN}:energy_consumption", f"{DOMAIN}:energy_consumption_in_dollars", f"{DOMAIN}:free_energy_consumption"},
+                "hour",
+                None,
+                {"sum"}
+            )
+            
+            # Initialize running sums from the last known values
+            if f"{DOMAIN}:energy_consumption" in existing_stats and existing_stats[f"{DOMAIN}:energy_consumption"]:
+                last_stat = existing_stats[f"{DOMAIN}:energy_consumption"][-1]
+                if last_stat.get("sum") is not None:
+                    kWhRunningSum = last_stat["sum"]
+                    _LOGGER.debug("Starting kWh sum from existing statistics: %s", kWhRunningSum)
+            
+            if f"{DOMAIN}:energy_consumption_in_dollars" in existing_stats and existing_stats[f"{DOMAIN}:energy_consumption_in_dollars"]:
+                last_stat = existing_stats[f"{DOMAIN}:energy_consumption_in_dollars"][-1]
+                if last_stat.get("sum") is not None:
+                    dollarRunningSum = last_stat["sum"]
+                    _LOGGER.debug("Starting dollar sum from existing statistics: %s", dollarRunningSum)
+            
+            if f"{DOMAIN}:free_energy_consumption" in existing_stats and existing_stats[f"{DOMAIN}:free_energy_consumption"]:
+                last_stat = existing_stats[f"{DOMAIN}:free_energy_consumption"][-1]
+                if last_stat.get("sum") is not None:
+                    freeKWhRunningSum = last_stat["sum"]
+                    _LOGGER.debug("Starting free kWh sum from existing statistics: %s", freeKWhRunningSum)
 
         for point in all_data_points:
             # If the off peak value is '0.00' then the energy is paid.
